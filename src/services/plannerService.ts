@@ -117,6 +117,9 @@ export async function createPlannerTask(
     bucketId, 
     title = 'New Task', 
     userId = 'me',
+    startDateTime,
+    notes,
+    priority, // This is already transformed to a number by the schema
     ...rest 
   } = input;
   
@@ -131,6 +134,11 @@ export async function createPlannerTask(
       title,
       ...rest
     };
+    
+    // Add startDateTime if provided
+    if (startDateTime) {
+      taskData.startDateTime = startDateTime;
+    }
     
     // If a user ID is provided, prepare the assignment
     const targetUserId = userId === 'me' ? currentUserId : userId;
@@ -148,6 +156,31 @@ export async function createPlannerTask(
       .api('/planner/tasks')
       .header('Prefer', 'return=representation')
       .post(taskData);
+    
+    // If notes are provided, update the task details
+    if (notes) {
+      try {
+        // First, get the etag for the task details
+        const taskDetails = await graphClient
+          .api(`/planner/tasks/${createdTask.id}/details`)
+          .get();
+        
+        // Update the task details with the notes
+        await graphClient
+          .api(`/planner/tasks/${createdTask.id}/details`)
+          .header('Prefer', 'return=representation')
+          .header('If-Match', taskDetails['@odata.etag'])
+          .patch({
+            description: notes
+          });
+        
+        // Update the created task to include the notes
+        createdTask.notes = notes;
+      } catch (error) {
+        console.error('Error updating task details with notes:', error);
+        // Don't fail the whole operation if updating notes fails
+      }
+    }
     
     return createdTask;
   } catch (error: unknown) {

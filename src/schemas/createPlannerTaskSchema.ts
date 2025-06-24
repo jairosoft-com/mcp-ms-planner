@@ -39,10 +39,31 @@ export const createPlannerTaskSchema = z.object({
   }),
   
   /**
-   * The priority of the task (0-10, where 0 is highest priority)
-   * Default: 5 (medium priority)
+   * The priority of the task
+   * - 'high': Highest priority (maps to 2)
+   * - 'medium': Medium priority (default, maps to 5)
+   * - 'low': Low priority (maps to 8)
    */
-  priority: z.number().int().min(0).max(10).default(5)
+  priority: z.enum(['low', 'medium', 'high']).default('medium')
+    .transform(priority => {
+      const priorityMap = {
+        'low': 8,
+        'medium': 5,
+        'high': 2
+      };
+      return priorityMap[priority];
+    }),
+  
+  /**
+   * The date and time when work on the task should begin (ISO 8601 format)
+   * If not provided, defaults to now
+   */
+  startDateTime: z.string().datetime().optional(),
+  
+  /**
+   * Additional notes or description for the task
+   */
+  notes: z.string().optional()
 });
 
 /**
