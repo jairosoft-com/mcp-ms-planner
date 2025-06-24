@@ -20,13 +20,11 @@ const requiredEnvVars = ["AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SEC
 const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
 
 if (missingVars.length > 0) {
-  console.error(`Error: Missing required environment variables: ${missingVars.join(", ")}`);
-  console.error(`Please check your .env file at: ${envPath}`);
-  console.log("Current environment variables:", Object.keys(process.env).filter(k => k.startsWith('AZURE_')));
+  // Error messages removed for production
   process.exit(1);
 }
 
-console.log("Successfully loaded environment variables");
+// Environment variables loaded
 
 // Create server instance
 const server = new McpServer({
@@ -40,20 +38,17 @@ registerPlannerTools(server);
 // Start the server
 async function main() {
   try {
-    // Log to stderr to avoid interfering with JSON-RPC
-  console.error("Starting Microsoft Planner server...");
-    console.error("Azure Tenant ID:", process.env.AZURE_TENANT_ID ? "[SET]" : "[MISSING]");
-    console.error("Azure Client ID:", process.env.AZURE_CLIENT_ID ? "[SET]" : "[MISSING]");
+    // Server startup logging removed for production
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
   } catch (error) {
-    console.error("❌ Failed to start server:", error);
+    // Server failed to start
     throw error;
   }
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  // Fatal error in main
   process.exit(1);
 });

@@ -99,7 +99,7 @@ export async function getTaskDetails(taskId: string): Promise<PlannerTask> {
     return task;
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`Error fetching task details for task ${taskId}:`, error);
+    // Error fetching task details
     throw new Error(`Failed to fetch task details: ${errorMessage}`);
   }
 }
@@ -177,7 +177,7 @@ export async function createPlannerTask(
         // Update the created task to include the notes
         createdTask.notes = notes;
       } catch (error) {
-        console.error('Error updating task details with notes:', error);
+        // Error updating task details
         // Don't fail the whole operation if updating notes fails
       }
     }

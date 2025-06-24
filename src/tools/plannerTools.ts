@@ -134,7 +134,7 @@ export function registerPlannerTools(server: McpServer): void {
         };
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('Error in get-planner-tasks tool:', error);
+        // Error handled by the error throw below
         return {
           content: [{
             type: 'text',
@@ -173,7 +173,7 @@ export function registerPlannerTools(server: McpServer): void {
               
               userParams.planId = planId;
               userParams.bucketId = bucketId;
-              
+              // Logging removed for production
             } else {
               // If no tasks found, try environment variables as fallback
               const envPlanId = process.env.DEFAULT_PLAN_ID;
@@ -219,7 +219,7 @@ export function registerPlannerTools(server: McpServer): void {
         };
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('Error in create-planner-task tool:', error);
+        // Error handled by the error throw below
         return {
           content: [{
             type: 'text',
