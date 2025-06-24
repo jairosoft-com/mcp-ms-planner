@@ -46,7 +46,6 @@ async function main() {
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.log("✅ Microsoft Planner server started and ready to accept connections");
   } catch (error) {
     console.error("❌ Failed to start server:", error);
     throw error;

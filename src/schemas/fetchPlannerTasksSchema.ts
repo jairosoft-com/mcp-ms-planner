@@ -12,23 +12,15 @@ export const fetchPlannerTasksSchema = z.object({
   
   /**
    * Filter tasks by status. Status is mapped to percentComplete:
-   * - notStarted: 0%
-   * - inProgress: 1-99%
-   * - completed: 100%
-   * Other statuses like 'deferred' and 'waitingOnOthers' are not directly supported
-   * by the Graph API and will be ignored.
+   * - 'notStarted': Tasks with 0% complete (percentComplete = 0)
+   * - 'inProgress': Tasks with 1-99% complete (0 < percentComplete < 100)
+   * - 'completed': Tasks with 100% complete (percentComplete = 100)
+   * 
+   * If not specified, returns all tasks regardless of status.
    */
-  status: z.enum(['notStarted', 'inProgress', 'completed']).optional(),
-  
-  /**
-   * Maximum number of tasks to return. Default is 100.
-   */
-  top: z.number().int().positive().max(100).default(100),
-  
-  /**
-   * Skip the first n tasks. Useful for pagination.
-   */
-  skip: z.number().int().min(0).default(0)
+  status: z.enum(['notStarted', 'inProgress', 'completed'])
+    .describe("Filter tasks by status. Allowed values: 'notStarted' (0%), 'inProgress' (1-99%), 'completed' (100%)")
+    .optional()
 });
 
 /**

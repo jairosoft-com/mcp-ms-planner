@@ -13,54 +13,58 @@ const DEFAULT_USER_ID = process.env.USER_ID || 'me';
  * @returns Promise with the list of tasks and pagination info
  */
 export async function fetchPlannerTasks(
-  input: FetchPlannerTasksInput = { user_id: 'me', top: 100, skip: 0 }
+  input: FetchPlannerTasksInput = { user_id: 'me' }
 ): Promise<{
   tasks: PlannerTask[];
   count: number;
   hasMore: boolean;
 }> {  
-  // Merge input with defaults
-  const { user_id = 'me', status, top = 100, skip = 0 } = input;
+  const { user_id = 'me', status } = input;
   const graphClient = getGraphClient();
   
   try {
     // Build the filter string based on input parameters
-    const filterParts = [];
+    let filter: string | undefined;
     
     if (status) {
       // Map status to percentComplete values:
       // notStarted = 0, inProgress = 1-99, completed = 100
       if (status === 'completed') {
-        filterParts.push('percentComplete eq 100');
+        filter = 'percentComplete eq 100';
       } else if (status === 'notStarted') {
-        filterParts.push('percentComplete eq 0');
+        filter = 'percentComplete eq 0';
       } else if (status === 'inProgress') {
-        filterParts.push('percentComplete gt 0 and percentComplete lt 100');
+        filter = 'percentComplete gt 0 and percentComplete lt 100';
       }
     }
-    
-    const filter = filterParts.length > 0 ? filterParts.join(' and ') : undefined;
     
     // Determine the user ID to use - use environment variable if 'me' is specified
     const userId = user_id === 'me' ? (process.env.USER_ID || 'me') : user_id;
     
-    // Fetch tasks from Microsoft Graph for the current user
-    let request = graphClient
-      .api(`/users/${userId}/planner/tasks`)
+    // Build the base request
+    let request = graphClient.api(`/users/${userId}/planner/tasks`)
       .header('Prefer', 'odata.maxpagesize=100')
-      .top(top)
-      .skip(skip);
+      .header('ConsistencyLevel', 'eventual');
     
+    // Apply filter if specified
     if (filter) {
       request = request.filter(filter);
     }
     
-    // Default user ID if not provided
-    const DEFAULT_USER_ID = process.env.USER_ID || 'me';
-    
-    // Get the user's tasks
+    // Execute the request
     const response = await request.get();
-    const tasks: PlannerTask[] = response.value || [];
+    
+    let tasks: PlannerTask[] = Array.isArray(response.value) ? response.value : [];
+    
+    // Apply client-side filtering as a fallback if needed
+    if (filter && tasks.length > 0) {
+      tasks = tasks.filter(task => {
+        if (status === 'completed') return task.percentComplete === 100;
+        if (status === 'notStarted') return task.percentComplete === 0;
+        if (status === 'inProgress') return task.percentComplete > 0 && task.percentComplete < 100;
+        return true;
+      });
+    }
     
     // Check if there are more results
     const nextLink = response['@odata.nextLink'];
@@ -73,7 +77,6 @@ export async function fetchPlannerTasks(
     };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Error fetching planner tasks:', error);
     throw new Error(`Failed to fetch planner tasks: ${errorMessage}`);
   }
 }
