@@ -35,20 +35,52 @@ const server = new McpServer({
 // Register tools
 registerPlannerTools(server);
 
+// Store the original console methods
+const originalConsole = {
+  log: console.log,
+  error: console.error,
+  warn: console.warn,
+  info: console.info,
+  debug: console.debug
+};
+
+// Suppress all console output during server initialization
+function suppressConsole() {
+  console.log = () => {};
+  console.error = () => {};
+  console.warn = () => {};
+  console.info = () => {};
+  console.debug = () => {};
+}
+
+// Restore original console methods
+function restoreConsole() {
+  console.log = originalConsole.log;
+  console.error = originalConsole.error;
+  console.warn = originalConsole.warn;
+  console.info = originalConsole.info;
+  console.debug = originalConsole.debug;
+}
+
 // Start the server
 async function main() {
   try {
-    // Server startup logging removed for production
+    // Suppress console output during server initialization
+    suppressConsole();
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
+    
+    // Restore console after successful connection
+    restoreConsole();
   } catch (error) {
-    // Server failed to start
-    throw error;
+    // Restore console before exiting on error
+    restoreConsole();
+    process.exit(1);
   }
 }
 
-main().catch((error) => {
-  // Fatal error in main
+// Start the server
+main().catch(() => {
   process.exit(1);
 });
