@@ -1,10 +1,10 @@
 // @ts-ignore - Missing type definitions for @modelcontextprotocol/sdk
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 // @ts-ignore - Missing type definitions for @modelcontextprotocol/sdk
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { registerPlannerTools } from "./tools/plannerTools.js";
-import dotenv from "dotenv";
-import path from "path";
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { registerPlannerTools } from './tools/plannerTools.js';
+import dotenv from 'dotenv';
+import path from 'path';
 import { fileURLToPath } from 'url';
 
 // Get the directory name of the current module
@@ -40,9 +40,10 @@ registerPlannerTools(server);
 // Start the server
 async function main() {
   try {
-    console.log("Starting Microsoft Planner server...");
-    console.log("Azure Tenant ID:", process.env.AZURE_TENANT_ID ? "[SET]" : "[MISSING]");
-    console.log("Azure Client ID:", process.env.AZURE_CLIENT_ID ? "[SET]" : "[MISSING]");
+    // Log to stderr to avoid interfering with JSON-RPC
+  console.error("Starting Microsoft Planner server...");
+    console.error("Azure Tenant ID:", process.env.AZURE_TENANT_ID ? "[SET]" : "[MISSING]");
+    console.error("Azure Client ID:", process.env.AZURE_CLIENT_ID ? "[SET]" : "[MISSING]");
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
