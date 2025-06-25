@@ -1,6 +1,7 @@
 import { getGraphClient } from './authService.js';
 import type { PlannerTask } from '../interfaces/plannerTask.js';
 import type { FetchPlannerTasksInput } from '../schemas/fetchPlannerTasksSchema.js';
+import type { CreatePlannerTaskInput } from '../schemas/createPlannerTaskSchema.js';
 
 declare const fetch: typeof globalThis.fetch;
 
@@ -98,12 +99,98 @@ export async function getTaskDetails(taskId: string): Promise<PlannerTask> {
     return task;
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`Error fetching task details for task ${taskId}:`, error);
+    // Error fetching task details
     throw new Error(`Failed to fetch task details: ${errorMessage}`);
+  }
+}
+
+/**
+ * Creates a new task in Microsoft Planner
+ * @param input The task creation parameters
+ * @returns Promise with the created task
+ */
+export async function createPlannerTask(
+  input: CreatePlannerTaskInput
+): Promise<PlannerTask> {
+  const { 
+    planId, 
+    bucketId, 
+    title = 'New Task', 
+    userId = 'me',
+    startDateTime,
+    notes,
+    priority, // This is already transformed to a number by the schema
+    ...rest 
+  } = input;
+  
+  const graphClient = getGraphClient();
+  const currentUserId = process.env.USER_ID;
+  
+  try {
+    // Prepare the task data
+    const taskData: Record<string, any> = {
+      planId,
+      bucketId,
+      title,
+      ...rest
+    };
+    
+    // Add startDateTime if provided
+    if (startDateTime) {
+      taskData.startDateTime = startDateTime;
+    }
+    
+    // If a user ID is provided, prepare the assignment
+    const targetUserId = userId === 'me' ? currentUserId : userId;
+    if (targetUserId) {
+      taskData.assignments = {
+        [targetUserId]: {
+          '@odata.type': '#microsoft.graph.plannerAssignment',
+          orderHint: ' !'
+        }
+      };
+    }
+    
+    // Create the task using Microsoft Graph API
+    const createdTask = await graphClient
+      .api('/planner/tasks')
+      .header('Prefer', 'return=representation')
+      .post(taskData);
+    
+    // If notes are provided, update the task details
+    if (notes) {
+      try {
+        // First, get the etag for the task details
+        const taskDetails = await graphClient
+          .api(`/planner/tasks/${createdTask.id}/details`)
+          .get();
+        
+        // Update the task details with the notes
+        await graphClient
+          .api(`/planner/tasks/${createdTask.id}/details`)
+          .header('Prefer', 'return=representation')
+          .header('If-Match', taskDetails['@odata.etag'])
+          .patch({
+            description: notes
+          });
+        
+        // Update the created task to include the notes
+        createdTask.notes = notes;
+      } catch (error) {
+        // Error updating task details
+        // Don't fail the whole operation if updating notes fails
+      }
+    }
+    
+    return createdTask;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Failed to create planner task: ${errorMessage}`);
   }
 }
 
 export default {
   fetchPlannerTasks,
   getTaskDetails,
+  createPlannerTask,
 };

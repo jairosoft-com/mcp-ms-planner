@@ -1,10 +1,10 @@
 // @ts-ignore - Missing type definitions for @modelcontextprotocol/sdk
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 // @ts-ignore - Missing type definitions for @modelcontextprotocol/sdk
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { registerPlannerTools } from "./tools/plannerTools.js";
-import dotenv from "dotenv";
-import path from "path";
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { registerPlannerTools } from './tools/plannerTools.js';
+import dotenv from 'dotenv';
+import path from 'path';
 import { fileURLToPath } from 'url';
 
 // Get the directory name of the current module
@@ -20,13 +20,11 @@ const requiredEnvVars = ["AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SEC
 const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
 
 if (missingVars.length > 0) {
-  console.error(`Error: Missing required environment variables: ${missingVars.join(", ")}`);
-  console.error(`Please check your .env file at: ${envPath}`);
-  console.log("Current environment variables:", Object.keys(process.env).filter(k => k.startsWith('AZURE_')));
+  // Error messages removed for production
   process.exit(1);
 }
 
-console.log("Successfully loaded environment variables");
+// Environment variables loaded
 
 // Create server instance
 const server = new McpServer({
@@ -37,22 +35,52 @@ const server = new McpServer({
 // Register tools
 registerPlannerTools(server);
 
+// Store the original console methods
+const originalConsole = {
+  log: console.log,
+  error: console.error,
+  warn: console.warn,
+  info: console.info,
+  debug: console.debug
+};
+
+// Suppress all console output during server initialization
+function suppressConsole() {
+  console.log = () => {};
+  console.error = () => {};
+  console.warn = () => {};
+  console.info = () => {};
+  console.debug = () => {};
+}
+
+// Restore original console methods
+function restoreConsole() {
+  console.log = originalConsole.log;
+  console.error = originalConsole.error;
+  console.warn = originalConsole.warn;
+  console.info = originalConsole.info;
+  console.debug = originalConsole.debug;
+}
+
 // Start the server
 async function main() {
   try {
-    console.log("Starting Microsoft Planner server...");
-    console.log("Azure Tenant ID:", process.env.AZURE_TENANT_ID ? "[SET]" : "[MISSING]");
-    console.log("Azure Client ID:", process.env.AZURE_CLIENT_ID ? "[SET]" : "[MISSING]");
+    // Suppress console output during server initialization
+    suppressConsole();
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
+    
+    // Restore console after successful connection
+    restoreConsole();
   } catch (error) {
-    console.error("❌ Failed to start server:", error);
-    throw error;
+    // Restore console before exiting on error
+    restoreConsole();
+    process.exit(1);
   }
 }
 
-main().catch((error) => {
-  console.error("Fatal error in main():", error);
+// Start the server
+main().catch(() => {
   process.exit(1);
 });

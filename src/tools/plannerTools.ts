@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { fetchPlannerTasks } from '../services/plannerService.js';
+import { fetchPlannerTasks, createPlannerTask } from '../services/plannerService.js';
 import { fetchPlannerTasksSchema } from '../schemas/fetchPlannerTasksSchema.js';
+import { createPlannerTaskSchema } from '../schemas/createPlannerTaskSchema.js';
 import type { PlannerTask } from '../interfaces/plannerTask.js';
 
 /**
@@ -133,11 +134,96 @@ export function registerPlannerTools(server: McpServer): void {
         };
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('Error in get-planner-tasks tool:', error);
+        // Error handled by the error throw below
         return {
           content: [{
             type: 'text',
             text: `❌ Error fetching tasks: ${errorMessage}. Please check the logs for more details.`,
+          }],
+        };
+      }
+    }
+  );
+
+  // Register the Create Planner Task tool with the server
+  server.tool(
+    'create-planner-task',
+    'Create a new task in Microsoft Planner',
+    createPlannerTaskSchema.shape,
+    async (args: unknown) => {
+      try {
+        // Type assertion is safe because the schema validates the input
+        const userParams = args as Parameters<typeof createPlannerTask>[0];
+        
+        // If planId or bucketId is not provided, try to get from existing tasks
+        if (!userParams.planId || !userParams.bucketId) {
+          try {
+            // Fetch existing tasks to get planId and bucketId
+            const { tasks } = await fetchPlannerTasks({ user_id: 'me' });
+            
+            if (tasks && tasks.length > 0) {
+              // Use the first task's plan and bucket IDs
+              const exampleTask = tasks[0];
+              
+              const { planId, bucketId } = exampleTask;
+
+              if (!planId || !bucketId) {
+                throw new Error(`Existing task is missing required IDs. Found planId: ${!!planId}, bucketId: ${!!bucketId}`);
+              }
+              
+              userParams.planId = planId;
+              userParams.bucketId = bucketId;
+              // Logging removed for production
+            } else {
+              // If no tasks found, try environment variables as fallback
+              const envPlanId = process.env.DEFAULT_PLAN_ID;
+              const envBucketId = process.env.DEFAULT_BUCKET_ID;
+              
+              if (envPlanId && envBucketId) {
+                userParams.planId = envPlanId;
+                userParams.bucketId = envBucketId;
+              } else {
+                throw new Error(
+                  'No existing tasks found to get planId and bucketId. ' +
+                  'Please either:\n' +
+                  '1. Create a task manually first, or\n' +
+                  '2. Provide planId and bucketId in the request, or\n' +
+                  '3. Set DEFAULT_PLAN_ID and DEFAULT_BUCKET_ID environment variables.'
+                );
+              }
+            }
+          } catch (fetchError) {
+            const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+            throw new Error(`Failed to fetch existing tasks: ${errorMessage}`);
+          }
+        }
+        
+        // Create the task using Microsoft Graph with the provided parameters
+        const createdTask = await createPlannerTask(userParams);
+        
+        // Format the response
+        const response = `✅ Task created successfully!\n\n` +
+          `**Title:** ${createdTask.title}\n` +
+          `**Plan ID:** ${createdTask.planId}\n` +
+          `**Bucket ID:** ${createdTask.bucketId}\n` +
+          `**Status:** ${getStatusText(createdTask.percentComplete || 0)}\n` +
+          `**Progress:** ${createdTask.percentComplete || 0}%\n` +
+          (createdTask.dueDateTime ? `**Due Date:** ${formatDate(createdTask.dueDateTime)}\n` : '') +
+          `**ID:** ${createdTask.id}`;
+        
+        return {
+          content: [{
+            type: 'text',
+            text: response,
+          }],
+        };
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        // Error handled by the error throw below
+        return {
+          content: [{
+            type: 'text',
+            text: `❌ Failed to create task: ${errorMessage}. Please check the logs for more details.`,
           }],
         };
       }
