@@ -1,16 +1,11 @@
 import { z } from 'zod';
+import { authSchema } from './fetchPlannerTasksSchema.js';
 
 /**
  * Schema for creating a new Planner task
  * Only includes essential fields for task creation
  */
-export const createPlannerTaskSchema = z.object({
-  /**
-   * The ID of the user to assign the task to
-   * Use "me" to assign to the current user (default)
-   * Or provide a specific user ID
-   */
-  userId: z.string().default('me'),
+export const createPlannerTaskSchema = authSchema.extend({
   /**
    * The ID of the plan to add the task to
    * Default: A default plan ID will be used if not provided

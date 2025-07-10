@@ -110,8 +110,22 @@ export function registerPlannerTools(server: McpServer): void {
         // Type assertion is safe because the schema validates the input
         const params = args as Parameters<typeof fetchPlannerTasks>[0];
         
-        // Fetch tasks from Microsoft Graph
-        const { tasks, count, hasMore } = await fetchPlannerTasks(params);
+        if (!params) {
+          throw new Error('Invalid parameters');
+        }
+        
+        // Ensure accessToken is present
+        const { accessToken, ...queryParams } = params as any; // Type assertion needed due to complex type
+        
+        if (!accessToken) {
+          throw new Error('Access token is required');
+        }
+        
+        // Fetch tasks from Microsoft Graph with accessToken
+        const { tasks, count, hasMore } = await fetchPlannerTasks({
+          ...queryParams,
+          accessToken
+        });
         
         // Format the tasks for display
         const formattedTasks = formatTasks(tasks);
@@ -155,11 +169,24 @@ export function registerPlannerTools(server: McpServer): void {
         // Type assertion is safe because the schema validates the input
         const userParams = args as Parameters<typeof createPlannerTask>[0];
         
+        if (!userParams) {
+          throw new Error('Invalid parameters');
+        }
+        
+        // Extract accessToken from params
+        const { accessToken, ...taskParams } = userParams as any; // Type assertion needed due to complex type
+        
+        if (!accessToken) {
+          throw new Error('Access token is required');
+        }
+        
         // If planId or bucketId is not provided, try to get from existing tasks
-        if (!userParams.planId || !userParams.bucketId) {
+        if (!taskParams.planId || !taskParams.bucketId) {
           try {
             // Fetch existing tasks to get planId and bucketId
-            const { tasks } = await fetchPlannerTasks({ user_id: 'me' });
+            const { tasks } = await fetchPlannerTasks({ 
+              accessToken
+            });
             
             if (tasks && tasks.length > 0) {
               // Use the first task's plan and bucket IDs
@@ -171,35 +198,27 @@ export function registerPlannerTools(server: McpServer): void {
                 throw new Error(`Existing task is missing required IDs. Found planId: ${!!planId}, bucketId: ${!!bucketId}`);
               }
               
-              userParams.planId = planId;
-              userParams.bucketId = bucketId;
+              taskParams.planId = planId;
+              taskParams.bucketId = bucketId;
               // Logging removed for production
             } else {
-              // If no tasks found, try environment variables as fallback
-              const envPlanId = process.env.DEFAULT_PLAN_ID;
-              const envBucketId = process.env.DEFAULT_BUCKET_ID;
-              
-              if (envPlanId && envBucketId) {
-                userParams.planId = envPlanId;
-                userParams.bucketId = envBucketId;
-              } else {
-                throw new Error(
-                  'No existing tasks found to get planId and bucketId. ' +
-                  'Please either:\n' +
-                  '1. Create a task manually first, or\n' +
-                  '2. Provide planId and bucketId in the request, or\n' +
-                  '3. Set DEFAULT_PLAN_ID and DEFAULT_BUCKET_ID environment variables.'
-                );
-              }
+              // If no tasks found, we can't proceed without planId and bucketId
+              throw new Error(
+                'No existing tasks found to get planId and bucketId. ' +
+                'Please provide both planId and bucketId in the request.'
+              );
             }
           } catch (fetchError) {
             const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
-            throw new Error(`Failed to fetch existing tasks: ${errorMessage}`);
+            throw new Error('Access token is required');
           }
         }
         
-        // Create the task using Microsoft Graph with the provided parameters
-        const createdTask = await createPlannerTask(userParams);
+        // Create the task with the provided parameters and accessToken
+        const createdTask = await createPlannerTask({
+          ...taskParams,
+          accessToken
+        });
         
         // Format the response
         const response = `✅ Task created successfully!\n\n` +

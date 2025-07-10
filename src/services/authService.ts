@@ -1,93 +1,107 @@
+import { AuthenticationError } from "../errors/authError.js";
 import { Client } from '@microsoft/microsoft-graph-client';
-import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
-import { ClientSecretCredential } from '@azure/identity';
+import { AuthProviderCallback } from '@microsoft/microsoft-graph-client';
 import 'isomorphic-fetch';
-import dotenv from 'dotenv';
-
-// Load environment variables
-dotenv.config();
-
-// Type declaration for the fetch API
-declare const fetch: typeof globalThis.fetch;
-
-// Environment variables
-const tenantId = process.env.AZURE_TENANT_ID;
-const clientId = process.env.AZURE_CLIENT_ID;
-const clientSecret = process.env.AZURE_CLIENT_SECRET;
 
 /**
- * Validates if all required Azure AD environment variables are set
- * @throws Error if any required environment variable is missing
+ * Interface for authentication configuration
+ * Only requires an access token for authentication
  */
-function validateAuthConfig(): void {
-  const requiredVars = ['AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET'];
-  const missingVars = requiredVars.filter((varName) => !process.env[varName]);
-
-  if (missingVars.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missingVars.join(', ')}. Please check your .env file.`
-    );
-  }
-}
-
-/**
- * Get Azure AD credentials using client secret flow
- * @returns ClientSecretCredential instance
- */
-function getAzureCredentials(): ClientSecretCredential {
-  validateAuthConfig();
+export interface AuthConfig {
+  /**
+   * Access token obtained through OAuth 2.0 authentication
+   */
+  accessToken: string;
   
-  if (!tenantId || !clientId || !clientSecret) {
-    throw new Error(
-      'Missing required Azure AD credentials. Please set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET environment variables.'
+  /**
+   * (Optional) Token expiration time in milliseconds since epoch
+   * If not provided, token will be treated as valid
+   */
+  expiresIn?: number;
+}
+
+/**
+ * Validates the authentication configuration
+ * @param config Authentication configuration
+ * @throws {AuthenticationError} If access token is missing
+ */
+function validateAuthConfig(config: Partial<AuthConfig>): void {
+  if (!config.accessToken) {
+    throw new AuthenticationError(
+      'MISSING_ACCESS_TOKEN',
+      'Access Token Required',
+      'An access token is required for authentication. Please provide a valid access token.'
     );
   }
-
-  return new ClientSecretCredential(tenantId, clientId, clientSecret);
-}
-
-// Create a credential for the app
-const credential = getAzureCredentials();
-
-// Create an auth provider
-const authProvider = new TokenCredentialAuthenticationProvider(credential, {
-  scopes: ['https://graph.microsoft.com/.default']
-});
-
-// Create a Graph client
-const graphClient = Client.initWithMiddleware({
-  authProvider,
-  defaultVersion: 'beta', // Use beta for Planner APIs
-});
-
-/**
- * Gets an authenticated Microsoft Graph client
- * @returns Authenticated Microsoft Graph client
- */
-export function getGraphClient() {
-  return graphClient;
 }
 
 /**
- * Gets an access token for Microsoft Graph
- * @returns Promise that resolves to an access token
+ * Gets an authenticated token for Microsoft Graph API
+ * @param config Authentication configuration
+ * @returns Promise<string> Access token
  */
-export async function getAccessToken(): Promise<string> {
+export async function authenticate(config: AuthConfig): Promise<string> {
   try {
-    const token = await credential.getToken('https://graph.microsoft.com/.default');
-    if (!token) {
-      throw new Error('Failed to get access token: No token returned');
+    validateAuthConfig(config);
+    
+    // Check if token is expired
+    if (config.expiresIn && Date.now() >= config.expiresIn - 300000) {
+      throw new AuthenticationError(
+        'TOKEN_EXPIRED',
+        'Access Token Expired',
+        'The provided access token has expired. Please obtain a new token and try again.'
+      );
     }
-    return token.token;
+    
+    return config.accessToken;
   } catch (error: unknown) {
+    if (error instanceof AuthenticationError) {
+      throw error;
+    }
+    
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    throw new Error(`Failed to get access token: ${errorMessage}`);
+    
+    throw new AuthenticationError(
+      'AUTHENTICATION_FAILED',
+      'Authentication Failed',
+      `Failed to authenticate with Microsoft Graph: ${errorMessage}`,
+      { originalError: errorMessage }
+    );
   }
+}
+
+/**
+ * Extracts the user ID from a JWT token
+ * @param token The JWT access token
+ * @returns The user ID (oid or sub claim) or an empty string if not found
+ */
+export function getUserIdFromToken(token: string): string {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
+    return decoded.oid || decoded.sub || '';
+  } catch (error) {
+    console.error('Error decoding token:', error);
+    return '';
+  }
+}
+
+/**
+ * Creates and returns a Microsoft Graph client instance
+ * @param accessToken The access token for authentication
+ * @returns An initialized Microsoft Graph client
+ */
+export function getGraphClient(accessToken: string) {
+  return Client.init({
+    authProvider: (done: AuthProviderCallback) => {
+      done(null, accessToken);
+    }
+  });
 }
 
 export default {
-  getGraphClient,
-  getAccessToken,
-  getAzureCredentials,
-  validateAuthConfig
+  authenticate,
+  getUserIdFromToken,
+  getGraphClient
 };

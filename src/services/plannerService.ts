@@ -1,12 +1,10 @@
-import { getGraphClient } from './authService.js';
+import { authenticate, getUserIdFromToken, getGraphClient } from './authService.js';
 import type { PlannerTask } from '../interfaces/plannerTask.js';
 import type { FetchPlannerTasksInput } from '../schemas/fetchPlannerTasksSchema.js';
 import type { CreatePlannerTaskInput } from '../schemas/createPlannerTaskSchema.js';
+import type { AuthConfig } from './authService.js';
 
 declare const fetch: typeof globalThis.fetch;
-
-// Default user ID if not provided
-const DEFAULT_USER_ID = process.env.USER_ID || 'me';
 
 /**
  * Fetches planner tasks for the current user
@@ -14,14 +12,21 @@ const DEFAULT_USER_ID = process.env.USER_ID || 'me';
  * @returns Promise with the list of tasks and pagination info
  */
 export async function fetchPlannerTasks(
-  input: FetchPlannerTasksInput = { user_id: 'me' }
+  input: FetchPlannerTasksInput & { accessToken: string } = { accessToken: '' }
 ): Promise<{
   tasks: PlannerTask[];
   count: number;
   hasMore: boolean;
 }> {  
-  const { user_id = 'me', status } = input;
-  const graphClient = getGraphClient();
+  const { status, accessToken } = input;
+  
+  // Get the user ID from the access token
+  const userId = getUserIdFromToken(accessToken);
+  if (!userId) {
+    throw new Error('Could not determine user ID from access token');
+  }
+  
+  const graphClient = getGraphClient(accessToken);
   
   try {
     // Build the filter string based on input parameters
@@ -39,10 +44,7 @@ export async function fetchPlannerTasks(
       }
     }
     
-    // Determine the user ID to use - use environment variable if 'me' is specified
-    const userId = user_id === 'me' ? (process.env.USER_ID || 'me') : user_id;
-    
-    // Build the base request
+    // Build the base request using the explicit user ID
     let request = graphClient.api(`/users/${userId}/planner/tasks`)
       .header('Prefer', 'odata.maxpagesize=100')
       .header('ConsistencyLevel', 'eventual');
@@ -78,6 +80,7 @@ export async function fetchPlannerTasks(
     };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error fetching planner tasks:', error);
     throw new Error(`Failed to fetch planner tasks: ${errorMessage}`);
   }
 }
@@ -85,46 +88,68 @@ export async function fetchPlannerTasks(
 /**
  * Gets detailed information about a specific task
  * @param taskId The ID of the task to get details for
+ * @param authConfig Authentication configuration containing the access token
  * @returns Promise with the task details
  */
-export async function getTaskDetails(taskId: string): Promise<PlannerTask> {
-  const graphClient = getGraphClient();
-  
+export async function getTaskDetails(
+  taskId: string,
+  accessToken: string
+): Promise<PlannerTask> {
   try {
-    const task = await graphClient
-      .api(`/planner/tasks/${taskId}`)
-      .select('*')
-      .get();
-      
-    return task;
+    // Get the user ID from the access token
+    const userId = getUserIdFromToken(accessToken);
+    if (!userId) {
+      throw new Error('Could not determine user ID from access token');
+    }
+    
+    const graphClient = getGraphClient(accessToken);
+    
+    try {
+      // Get task details using the explicit user ID
+      const task = await graphClient
+        .api(`/users/${userId}/planner/tasks/${taskId}`)
+        .select('*')
+        .get();
+        
+      return task;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`Error fetching task details for task ${taskId}:`, error);
+      throw new Error(`Failed to fetch task details: ${errorMessage}`);
+    }
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    // Error fetching task details
+    console.error(`Error fetching task details for task ${taskId}:`, error);
     throw new Error(`Failed to fetch task details: ${errorMessage}`);
   }
 }
 
 /**
  * Creates a new task in Microsoft Planner
- * @param input The task creation parameters
+ * @param input The task creation parameters including authConfig
  * @returns Promise with the created task
  */
 export async function createPlannerTask(
-  input: CreatePlannerTaskInput
+  input: CreatePlannerTaskInput & { accessToken: string }
 ): Promise<PlannerTask> {
   const { 
     planId, 
     bucketId, 
     title = 'New Task', 
-    userId = 'me',
     startDateTime,
     notes,
     priority, // This is already transformed to a number by the schema
+    accessToken,
     ...rest 
   } = input;
   
-  const graphClient = getGraphClient();
-  const currentUserId = process.env.USER_ID;
+  // Get the user ID from the token
+  const userIdFromToken = getUserIdFromToken(accessToken);
+  if (!userIdFromToken) {
+    throw new Error('Could not determine user ID from access token');
+  }
+  
+  const graphClient = getGraphClient(accessToken);
   
   try {
     // Prepare the task data
@@ -140,16 +165,13 @@ export async function createPlannerTask(
       taskData.startDateTime = startDateTime;
     }
     
-    // If a user ID is provided, prepare the assignment
-    const targetUserId = userId === 'me' ? currentUserId : userId;
-    if (targetUserId) {
-      taskData.assignments = {
-        [targetUserId]: {
-          '@odata.type': '#microsoft.graph.plannerAssignment',
-          orderHint: ' !'
-        }
-      };
-    }
+    // Always assign the task to the current user
+    taskData.assignments = {
+      [userIdFromToken]: {
+        '@odata.type': '#microsoft.graph.plannerAssignment',
+        orderHint: ' !'
+      }
+    };
     
     // Create the task using Microsoft Graph API
     const createdTask = await graphClient
@@ -185,6 +207,7 @@ export async function createPlannerTask(
     return createdTask;
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error creating planner task:', error);
     throw new Error(`Failed to create planner task: ${errorMessage}`);
   }
 }
