@@ -1,0 +1,148 @@
+{
+  "info": {
+    "name": "MCP MS Planner API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for MCP MS Planner API endpoints",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "Get All Tasks (Assigned to Me)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/api/planner/tasks",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "planner", "tasks"]
+        },
+        "description": "Get all tasks assigned to the authenticated user"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Tasks by Status",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/api/planner/tasks?status=inProgress",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "planner", "tasks"],
+          "query": [
+            {
+              "key": "status",
+              "value": "inProgress",
+              "description": "Status filter: notStarted, inProgress, or completed"
+            }
+          ]
+        },
+        "description": "Get tasks filtered by status"
+      },
+      "response": []
+    },
+    {
+      "name": "Create New Task",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"planId\": \"yMqz3LlcNUK0rb0OcsE58WUABrlZ\",\n    \"bucketId\": \"_Vpqb8GFQUuE1RMdgzEKuGUALoLX\",\n    \"title\": \"Complete project proposal\",\n    \"dueDateTime\": \"2025-07-24T18:00:00+08:00\",\n    \"priority\": \"high\",\n    \"startDateTime\": \"2025-07-17T10:00:00+08:00\",\n    \"notes\": \"Please include all requirements and timeline in the proposal\",\n    \"assignments\": {\n        \"user_dbc04758-8e5e-4172-9ecb-9400d4c4eef6\": {\n            \"@odata.type\": \"#microsoft.graph.plannerAssignment\",\n            \"orderHint\": \" !\"\n        }\n    }\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/planner/tasks",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "planner", "tasks"]
+        },
+        "description": "Create a new task in the specified plan and bucket"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Task Details",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/api/planner/tasks/PUaNYT90IkuKlXoVG3XwK2UAEyWO",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "planner", "tasks", "PUaNYT90IkuKlXoVG3XwK2UAEyWO"]
+        },
+        "description": "Get detailed information about a specific task"
+      },
+      "response": []
+    },
+    {
+      "name": "SSE Connection",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/events",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["events"]
+        },
+        "description": "Connect to Server-Sent Events (SSE) for real-time updates"
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "// Set your access token here or in an environment variable",
+          "// pm.environment.set('accessToken', 'your_access_token_here');"
+        ],
+        "type": "text/javascript"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    }
+  ]
+}

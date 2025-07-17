@@ -29,38 +29,54 @@ export async function fetchPlannerTasks(
   const graphClient = getGraphClient(accessToken);
   
   try {
-    // Build the filter string based on input parameters
-    let filter: string | undefined;
-    
-    if (status) {
-      // Map status to percentComplete values:
-      // notStarted = 0, inProgress = 1-99, completed = 100
-      if (status === 'completed') {
-        filter = 'percentComplete eq 100';
-      } else if (status === 'notStarted') {
-        filter = 'percentComplete eq 0';
-      } else if (status === 'inProgress') {
-        filter = 'percentComplete gt 0 and percentComplete lt 100';
-      }
-    }
-    
-    // Build the base request using the explicit user ID
-    let request = graphClient.api(`/users/${userId}/planner/tasks`)
+    // First, get all tasks the user has access to
+    let request = graphClient.api(`/me/planner/tasks`)
       .header('Prefer', 'odata.maxpagesize=100')
       .header('ConsistencyLevel', 'eventual');
     
-    // Apply filter if specified
-    if (filter) {
-      request = request.filter(filter);
+    // Apply status filter if specified
+    if (status) {
+      let statusFilter = '';
+      if (status === 'completed') {
+        statusFilter = 'percentComplete eq 100';
+      } else if (status === 'notStarted') {
+        statusFilter = 'percentComplete eq 0';
+      } else if (status === 'inProgress') {
+        statusFilter = 'percentComplete gt 0 and percentComplete lt 100';
+      }
+      
+      if (statusFilter) {
+        request = request.filter(statusFilter);
+      }
     }
     
     // Execute the request
     const response = await request.get();
-    
     let tasks: PlannerTask[] = Array.isArray(response.value) ? response.value : [];
     
-    // Apply client-side filtering as a fallback if needed
-    if (filter && tasks.length > 0) {
+    // Filter tasks to only include those assigned to the current user
+    tasks = tasks.filter(task => {
+      // Check if the task has assignments
+      if (task.assignments) {
+        // The assignments object has user IDs as keys
+        const assignedUserIds = Object.keys(task.assignments);
+        
+        // Check if the current user is in the assigned users list
+        // The assignments object keys are in the format: 'user_<userId>'
+        return assignedUserIds.some(assignedUserId => {
+          // Extract the actual user ID from the key
+          const assignedId = assignedUserId.startsWith('user_') 
+            ? assignedUserId.substring(5) 
+            : assignedUserId;
+            
+          return assignedId === userId;
+        });
+      }
+      return false;
+    });
+    
+    // Apply client-side status filtering as a fallback if needed
+    if (status) {
       tasks = tasks.filter(task => {
         if (status === 'completed') return task.percentComplete === 100;
         if (status === 'notStarted') return task.percentComplete === 0;
