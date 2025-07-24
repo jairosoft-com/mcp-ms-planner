@@ -1,236 +1,279 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { fetchPlannerTasks, createPlannerTask } from '../services/plannerService.js';
-import { fetchPlannerTasksSchema } from '../schemas/fetchPlannerTasksSchema.js';
-import { createPlannerTaskSchema } from '../schemas/createPlannerTaskSchema.js';
-import type { PlannerTask } from '../interfaces/plannerTask.js';
+import { z } from "zod";
+import { GraphResponse, PlannerTask } from "../interface/calendarInterfaces";
 
-/**
- * Formats a date string to a more readable format
- * @param dateString ISO date string
- * @returns Formatted date string
- */
-function formatDate(dateString?: string): string {
-  if (!dateString) return 'No due date';
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+// Shared authentication token
+let currentAuthToken: string | undefined;
+
+// Function to set the authentication token
+export function setAuthToken(token: string | undefined) {
+    currentAuthToken = token;
 }
 
-/**
- * Gets the status text based on percent complete
- * @param percentComplete The completion percentage (0-100)
- * @returns Status text (Not Started, In Progress, or Completed)
- */
-function getStatusText(percentComplete: number): string {
-  if (percentComplete === 0) return 'Not Started';
-  if (percentComplete === 100) return 'Completed';
-  return 'In Progress';
-}
+export function fetchTasks() {
+    return {
+        name: "fetchTasks",
+        schema: {
+            startDateTime: z.string().describe("Start date and time in ISO 8601 format (e.g., 2023-01-01T00:00:00)"),
+            endDateTime: z.string().describe("End date and time in ISO 8601 format (e.g., 2023-01-31T23:59:59)"),
+        },
+        handler: async ({ startDateTime, endDateTime }: { startDateTime: string; endDateTime: string }) => {
+            try {
+                if (!currentAuthToken) {
+                    throw new Error("Authentication token not found. Please configure the AUTH_TOKEN environment variable in your MCP server configuration.");
+                }
 
-/**
- * Truncates text to a maximum length, adding an ellipsis if needed
- * @param text The text to truncate
- * @param maxLength Maximum length before truncation
- * @returns Truncated text
- */
-function truncate(text: string, maxLength: number): string {
-  if (!text) return '';
-  return text.length <= maxLength ? text : text.substring(0, maxLength - 3) + '...';
-}
+                // Format the API URL with query parameters
+                const url = new URL('https://graph.microsoft.com/v1.0/me/calendarView');
+                url.searchParams.append('startDateTime', startDateTime);
+                url.searchParams.append('endDateTime', endDateTime);
+                url.searchParams.append('$select', 'subject,start,end,organizer,location');
+                url.searchParams.append('$orderby', 'start/dateTime');
 
-/**
- * Formats a date to a short string
- * @param dateString ISO date string
- * @returns Formatted date string (MM/DD/YYYY)
- */
-function formatShortDate(dateString?: string): string {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-}
+                // Make the API request
+                const response = await fetch(url.toString(), {
+                    headers: {
+                        'Authorization': `Bearer ${currentAuthToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
 
-/**
- * Formats a list of tasks into a tabulated markdown table
- * @param tasks List of tasks to format
- * @returns Formatted markdown table of tasks
- */
-function formatTasks(tasks: PlannerTask[]): string {
-  if (tasks.length === 0) {
-    return 'No tasks found.';
-  }
+                if (!response.ok) {
+                    const errorData = await response.json() as { error?: { message?: string } };
+                    throw new Error(`Microsoft Graph API error: ${errorData?.error?.message || response.statusText}`);
+                }
 
-  // Table header
-  let table = '| # | Title | Status | Progress | Due Date | ID |\n';
-  table += '| --- | --- | --- | --- | --- | --- |\n';
+                const responseData = await response.json() as PlannerTask;
 
-  // Add each task as a row
-  tasks.forEach((task, index) => {
-    const status = getStatusText(task.percentComplete);
-    const dueDate = task.dueDateTime ? formatShortDate(task.dueDateTime) : 'No due date';
-    const progress = `${task.percentComplete}%`;
-    
-    // Truncate title for better table readability
-    const truncatedTitle = truncate(task.title, 50);
-    
-    table += `| ${index + 1} `;  // Row number
-    table += `| ${truncatedTitle} `;  // Title
-    table += `| ${status} `;  // Status
-    table += `| ${progress} `;  // Progress
-    table += `| ${dueDate} `;  // Due date
-    table += `| ${task.id} `;  // Task ID
-    table += '|\n';  // End of row
-  });
+                const data = responseData.value || responseData;
 
-  // Add a summary at the top
-  const summary = `## Planner Tasks (${tasks.length} tasks)\n\n`;
-  
-  return summary + table;
-}
+                // Check if data is an array and handle empty results
+                if (!Array.isArray(data)) {
+                    return {
+                        content: [{
+                            type: "text" as const,
+                            text: "Error: Unexpected response format from planner API.",
+                            _meta: {}
+                        }]
+                    };
+                }
+                
+                if (data.length === 0) {
+                    return {
+                        content: [{
+                            type: "text" as const,
+                            text: "No tasks found in the specified plan.",
+                            _meta: {}
+                        }]
+                    };
+                }
+                
+                const tasksList = data.map((task, index) => {
+                    const dueDate = task.dueDateTime 
+                        ? new Date(task.dueDateTime).toLocaleDateString() 
+                        : 'No due date';
+                    const status = task.percentComplete === 100 
+                        ? '✅ Completed' 
+                        : task.percentComplete && task.percentComplete > 0 
+                            ? '🔄 In Progress' 
+                            : '📝 Not Started';
+                    
+                    return [
+                        `${index + 1}. ${task.title || 'Untitled Task'}`,
+                        `   Status: ${status} (${task.percentComplete || 0}%)`,
+                        `   Due: ${dueDate}`,
+                        task.planId ? `   Plan ID: ${task.planId}` : '',
+                        task.bucketId ? `   Bucket ID: ${task.bucketId}` : '',
+                        '' // Empty line for spacing
+                    ].filter(Boolean).join('\n');
+                }).join('\n');
+                
+                return {
+                    content: [{
+                        type: "text" as const,
+                        text: `📋 *Tasks (${data.length})*\n\n${tasksList}`,
+                        _meta: {}
+                    }]
+                };
 
-/**
- * Registers the planner tools with the MCP server
- * @param server The MCP server instance
- */
-export function registerPlannerTools(server: McpServer): void {
-  // Register the Get Planner Tasks tool with the server
-  server.tool(
-    'get-planner-tasks',
-    'Fetch Microsoft Planner tasks for a user with optional filtering',
-    fetchPlannerTasksSchema.shape,
-    async (args: unknown) => {
-      try {
-        // Type assertion is safe because the schema validates the input
-        const params = args as Parameters<typeof fetchPlannerTasks>[0];
-        
-        // Fetch tasks from Microsoft Graph
-        const { tasks, count, hasMore } = await fetchPlannerTasks(params);
-        
-        // Format the tasks for display
-        const formattedTasks = formatTasks(tasks);
-        
-        // Create the response
-        let response = `📋 Found ${count} tasks`;
-        if (hasMore) {
-          response += ' (more available)';
-        }
-        
-        if (count > 0) {
-          response += `:\n\n${formattedTasks}`;
-        }
-        
-        return {
-          content: [{
-            type: 'text',
-            text: response,
-          }],
-        };
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        // Error handled by the error throw below
-        return {
-          content: [{
-            type: 'text',
-            text: `❌ Error fetching tasks: ${errorMessage}. Please check the logs for more details.`,
-          }],
-        };
-      }
-    }
-  );
-
-  // Register the Create Planner Task tool with the server
-  server.tool(
-    'create-planner-task',
-    'Create a new task in Microsoft Planner',
-    createPlannerTaskSchema.shape,
-    async (args: unknown) => {
-      try {
-        // Type assertion is safe because the schema validates the input
-        const userParams = args as Parameters<typeof createPlannerTask>[0];
-        
-        // If planId or bucketId is not provided, try to get from existing tasks
-        if (!userParams.planId || !userParams.bucketId) {
-          try {
-            // Fetch existing tasks to get planId and bucketId
-            const { tasks } = await fetchPlannerTasks({ user_id: 'me' });
-            
-            if (tasks && tasks.length > 0) {
-              // Use the first task's plan and bucket IDs
-              const exampleTask = tasks[0];
-              
-              const { planId, bucketId } = exampleTask;
-
-              if (!planId || !bucketId) {
-                throw new Error(`Existing task is missing required IDs. Found planId: ${!!planId}, bucketId: ${!!bucketId}`);
-              }
-              
-              userParams.planId = planId;
-              userParams.bucketId = bucketId;
-              // Logging removed for production
-            } else {
-              // If no tasks found, try environment variables as fallback
-              const envPlanId = process.env.DEFAULT_PLAN_ID;
-              const envBucketId = process.env.DEFAULT_BUCKET_ID;
-              
-              if (envPlanId && envBucketId) {
-                userParams.planId = envPlanId;
-                userParams.bucketId = envBucketId;
-              } else {
-                throw new Error(
-                  'No existing tasks found to get planId and bucketId. ' +
-                  'Please either:\n' +
-                  '1. Create a task manually first, or\n' +
-                  '2. Provide planId and bucketId in the request, or\n' +
-                  '3. Set DEFAULT_PLAN_ID and DEFAULT_BUCKET_ID environment variables.'
-                );
-              }
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                return {
+                    content: [{
+                        type: "text" as const,
+                        text: `Error fetching calendar events: ${errorMessage}`,
+                        _meta: {}
+                    }],
+                    isError: true
+                };
             }
-          } catch (fetchError) {
-            const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
-            throw new Error(`Failed to fetch existing tasks: ${errorMessage}`);
-          }
         }
-        
-        // Create the task using Microsoft Graph with the provided parameters
-        const createdTask = await createPlannerTask(userParams);
-        
-        // Format the response
-        const response = `✅ Task created successfully!\n\n` +
-          `**Title:** ${createdTask.title}\n` +
-          `**Plan ID:** ${createdTask.planId}\n` +
-          `**Bucket ID:** ${createdTask.bucketId}\n` +
-          `**Status:** ${getStatusText(createdTask.percentComplete || 0)}\n` +
-          `**Progress:** ${createdTask.percentComplete || 0}%\n` +
-          (createdTask.dueDateTime ? `**Due Date:** ${formatDate(createdTask.dueDateTime)}\n` : '') +
-          `**ID:** ${createdTask.id}`;
-        
-        return {
-          content: [{
-            type: 'text',
-            text: response,
-          }],
-        };
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        // Error handled by the error throw below
-        return {
-          content: [{
-            type: 'text',
-            text: `❌ Failed to create task: ${errorMessage}. Please check the logs for more details.`,
-          }],
-        };
-      }
-    }
-  );
+    };
 }
 
-export default {
-  registerPlannerTools,
-};
+export function createTask() {
+    return {
+        name: "createTask",
+        schema: {
+            title: z.string().min(1, "Task title is required"),
+            planId: z.string().optional().describe("ID of the plan to add the task to"),
+            bucketId: z.string().optional().describe("ID of the bucket to add the task to"),
+            dueDateTime: z.string().datetime().optional().describe("Due date and time in ISO 8601 format"),
+            percentComplete: z.number().min(0).max(100).optional().describe("Percentage complete (0-100)"),
+            description: z.string().optional().describe("Task description"),
+            priority: z.number().min(0).max(10).optional().describe("Task priority (0=no priority, 10=highest)"),
+            assignments: z.record(z.object({
+                '@odata.type': z.literal("#microsoft.graph.plannerAssignment"),
+                orderHint: z.string().optional()
+            })).optional().describe("User assignments for the task")
+        },
+        handler: async ({
+            title,
+            planId,
+            bucketId,
+            dueDateTime,
+            percentComplete,
+            description,
+            priority,
+            assignments
+        }: {
+            title: string;
+            planId?: string;
+            bucketId?: string;
+            dueDateTime?: string;
+            percentComplete?: number;
+            description?: string;
+            priority?: number;
+            assignments?: Record<string, any>;
+        }) => {
+            try {
+                if (!currentAuthToken) {
+                    throw new Error("Authentication token not found. Please configure the AUTH_TOKEN environment variable in your MCP server configuration.");
+                }
+
+                // If planId or bucketId is not provided, try to get from existing tasks
+                let targetPlanId = planId;
+                let targetBucketId = bucketId;
+
+                if (!targetPlanId || !targetBucketId) {
+                    // First, get the user's plans
+                    const plansResponse = await fetch('https://graph.microsoft.com/v1.0/me/planner/plans', {
+                        headers: {
+                            'Authorization': `Bearer ${currentAuthToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                    });
+
+                    if (!plansResponse.ok) {
+                        const errorData = await plansResponse.json() as { error?: { message?: string } };
+                        throw new Error(`Failed to fetch plans: ${errorData?.error?.message || plansResponse.statusText}`);
+                    }
+
+                    const plans = await plansResponse.json() as { value: Array<{ id: string, title: string }> };
+                    if (plans.value.length === 0) {
+                        throw new Error("No plans found for this user. Please create a plan first.");
+                    }
+
+                    // Use the first plan by default if not specified
+                    targetPlanId = targetPlanId || plans.value[0].id;
+
+                    // Get buckets for the selected plan
+                    const bucketsResponse = await fetch(`https://graph.microsoft.com/v1.0/planner/plans/${targetPlanId}/buckets`, {
+                        headers: {
+                            'Authorization': `Bearer ${currentAuthToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                    });
+
+                    if (!bucketsResponse.ok) {
+                        const errorData = await bucketsResponse.json() as { error?: { message?: string } };
+                        throw new Error(`Failed to fetch buckets: ${errorData?.error?.message || bucketsResponse.statusText}`);
+                    }
+
+                    const buckets = await bucketsResponse.json() as { value: Array<{ id: string, name: string }> };
+                    if (buckets.value.length === 0) {
+                        throw new Error("No buckets found in the selected plan. Please create a bucket first.");
+                    }
+
+                    // Use the first bucket by default if not specified
+                    targetBucketId = targetBucketId || buckets.value[0].id;
+                }
+
+                // Create the task payload
+                const taskPayload: any = {
+                    planId: targetPlanId,
+                    bucketId: targetBucketId,
+                    title,
+                };
+
+                // Add optional fields if provided
+                if (dueDateTime) taskPayload.dueDateTime = dueDateTime;
+                if (percentComplete !== undefined) taskPayload.percentComplete = percentComplete;
+                if (description) taskPayload.description = description;
+                if (priority !== undefined) taskPayload.priority = priority;
+                if (assignments) taskPayload.assignments = assignments;
+
+                // First, create the task
+                const createResponse = await fetch('https://graph.microsoft.com/v1.0/planner/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${currentAuthToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(taskPayload)
+                });
+
+                if (!createResponse.ok) {
+                    const errorData = await createResponse.json() as { error?: { message?: string } };
+                    throw new Error(`Failed to create task: ${errorData?.error?.message || createResponse.statusText}`);
+                }
+
+                const createdTask = await createResponse.json() as PlannerTask;
+
+                // Helper function to get task status text
+                function getTaskStatus(percentComplete?: number): string {
+                    if (percentComplete === undefined || percentComplete === null) {
+                        return 'Not Started (0%)';
+                    }
+                    const status = percentComplete === 100 
+                        ? 'Completed' 
+                        : percentComplete > 0 
+                            ? 'In Progress' 
+                            : 'Not Started';
+                    return `${status} (${percentComplete}%)`;
+                }
+
+                // Format the response
+                const responseText = [
+                    `✅ Task created successfully!`,
+                    `Title: ${createdTask?.title || 'No title'}`,
+                    `ID: ${createdTask?.id || 'No ID'}`,
+                    `Plan ID: ${createdTask?.planId || 'No plan ID'}`,
+                    `Bucket ID: ${createdTask?.bucketId || 'No bucket ID'}`,
+                    createdTask?.dueDateTime 
+                        ? `Due: ${new Date(createdTask.dueDateTime).toLocaleString()}` 
+                        : 'No due date',
+                    `Status: ${getTaskStatus(createdTask?.percentComplete)}`
+                ].join('\n');
+
+                return {
+                    content: [{
+                        type: "text" as const,
+                        text: responseText,
+                        _meta: {}
+                    }]
+                };
+
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                return {
+                    content: [{
+                        type: "text" as const,
+                        text: `Error creating planner task: ${errorMessage}`,
+                        _meta: {}
+                    }],
+                    isError: true
+                };
+            }
+        }
+    };
+}
