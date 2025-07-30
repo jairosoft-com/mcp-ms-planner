@@ -159,41 +159,67 @@ export function fetchTasks() {
     };
 }
 
+interface CreateTaskParams {
+    title: string;
+    planId?: string;
+    bucketId?: string;
+    dueDateTime?: string;
+    percentComplete?: number;
+    description?: string;
+    priority?: number;
+    assignments?: Record<string, any>;
+}
+
 export function createTask() {
     return {
         name: "createTask",
+        description: "Create a new task in Microsoft Planner",
         schema: {
-            title: z.string().min(1, "Task title is required"),
-            planId: z.string().optional().describe("ID of the plan to add the task to"),
-            bucketId: z.string().optional().describe("ID of the bucket to add the task to"),
-            dueDateTime: z.string().datetime().optional().describe("Due date and time in ISO 8601 format"),
-            percentComplete: z.number().min(0).max(100).optional().describe("Percentage complete (0-100)"),
-            description: z.string().optional().describe("Task description"),
-            priority: z.number().min(0).max(10).optional().describe("Task priority (0=no priority, 10=highest)"),
+            title: z.string()
+                .min(1, "Task title is required and cannot be empty")
+                .describe("Title of the task"),
+            planId: z.string()
+                .optional()
+                .describe("ID of the plan to add the task to. If not provided, the first available plan will be used."),
+            bucketId: z.string()
+                .optional()
+                .describe("ID of the bucket to add the task to. If not provided, the first available bucket in the plan will be used."),
+            dueDateTime: z.string()
+                .datetime()
+                .optional()
+                .describe("Due date and time in ISO 8601 format (e.g., 2025-08-30T12:00:00Z)"),
+            percentComplete: z.number()
+                .min(0, "Percentage must be at least 0")
+                .max(100, "Percentage cannot exceed 100")
+                .optional()
+                .describe("Percentage complete (0-100)"),
+            description: z.string()
+                .optional()
+                .describe("Detailed description of the task"),
+            priority: z.number()
+                .min(0, "Priority must be at least 0")
+                .max(10, "Priority cannot exceed 10")
+                .optional()
+                .describe("Task priority (0=no priority, 10=highest)"),
             assignments: z.record(z.object({
                 '@odata.type': z.literal("#microsoft.graph.plannerAssignment"),
                 orderHint: z.string().optional()
-            })).optional().describe("User assignments for the task")
+            }))
+            .optional()
+            .describe("User assignments for the task. Key is the user ID.")
         },
-        handler: async ({
-            title,
-            planId,
-            bucketId,
-            dueDateTime,
-            percentComplete,
-            description,
-            priority,
-            assignments
-        }: {
-            title: string;
-            planId?: string;
-            bucketId?: string;
-            dueDateTime?: string;
-            percentComplete?: number;
-            description?: string;
-            priority?: number;
-            assignments?: Record<string, any>;
-        }) => {
+        handler: async (params: CreateTaskParams) => {
+            // Destructure with defaults for cleaner code
+            const {
+                title,
+                planId,
+                bucketId,
+                dueDateTime,
+                percentComplete,
+                description,
+                priority,
+                assignments
+            } = params;
             try {
                 if (!currentAuthToken) {
                     throw new Error("Authentication token not found. Please configure the AUTH_TOKEN environment variable in your MCP server configuration.");
@@ -247,11 +273,43 @@ export function createTask() {
                     targetBucketId = targetBucketId || buckets.value[0].id;
                 }
 
+                // Get current user's ID to auto-assign the task
+                const meResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
+                    headers: {
+                        'Authorization': `Bearer ${currentAuthToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!meResponse.ok) {
+                    const errorData = await meResponse.json() as { error?: { message?: string } };
+                    throw new Error(`Failed to get current user info: ${errorData?.error?.message || meResponse.statusText}`);
+                }
+
+                // Define interface for Microsoft Graph user object
+                interface MicrosoftGraphUser {
+                    id: string;
+                    userPrincipalName: string;
+                    displayName?: string;
+                }
+
+                const me = await meResponse.json() as MicrosoftGraphUser;
+                const currentUserId = me.id;
+
                 // Create the task payload
                 const taskPayload: any = {
                     planId: targetPlanId,
                     bucketId: targetBucketId,
                     title,
+                    assignments: {
+                        // Auto-assign to current user
+                        [currentUserId]: {
+                            '@odata.type': "#microsoft.graph.plannerAssignment",
+                            orderHint: " !"
+                        },
+                        // Merge with any existing assignments
+                        ...(assignments || {})
+                    }
                 };
 
                 // Add optional fields if provided
@@ -259,7 +317,6 @@ export function createTask() {
                 if (percentComplete !== undefined) taskPayload.percentComplete = percentComplete;
                 if (description) taskPayload.description = description;
                 if (priority !== undefined) taskPayload.priority = priority;
-                if (assignments) taskPayload.assignments = assignments;
                 
                 // First, create the task
                 const createResponse = await fetch('https://graph.microsoft.com/v1.0/planner/tasks', {

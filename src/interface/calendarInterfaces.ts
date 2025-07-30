@@ -1,18 +1,3 @@
-interface DateTimeTimeZone {
-    dateTime: string;
-    timeZone: string;
-}
-
-interface EmailAddress {
-    name?: string;
-    address?: string;
-}
-
-interface Attendee {
-    emailAddress: EmailAddress;
-    type: 'required' | 'optional' | 'resource';
-}
-
 export interface PlannerTask {
     id?: string;
     title?: string;
@@ -21,6 +6,17 @@ export interface PlannerTask {
     dueDateTime?: string | null;
     percentComplete?: number;
     value?: string; 
+}
+
+export interface CreateTaskParams {
+    title: string;
+    planId?: string;
+    bucketId?: string;
+    dueDateTime?: string;
+    percentComplete?: number;
+    description?: string;
+    priority?: number;
+    assignments?: Record<string, any>;
 }
 
 export interface GraphResponse<T> {
