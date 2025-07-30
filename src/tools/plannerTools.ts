@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { GraphResponse, PlannerTask } from "../interface/calendarInterfaces";
+import { getPriorityText } from "../utils/helpers";
+import { PlannerTask } from "../interface/calendarInterfaces";
+
 
 // Shared authentication token
 let currentAuthToken: string | undefined;
@@ -15,22 +17,38 @@ export function fetchTasks() {
         schema: {
             startDateTime: z.string().describe("Start date and time in ISO 8601 format (e.g., 2023-01-01T00:00:00)"),
             endDateTime: z.string().describe("End date and time in ISO 8601 format (e.g., 2023-01-31T23:59:59)"),
+            planId: z.string().optional().describe("Optional plan ID to filter tasks from a specific plan"),
+            includeRawResponse: z.boolean().optional().describe("Include raw API response in output"),
         },
-        handler: async ({ startDateTime, endDateTime }: { startDateTime: string; endDateTime: string }) => {
+        handler: async ({ 
+            startDateTime, 
+            endDateTime, 
+            planId,
+            includeRawResponse = false 
+        }: { 
+            startDateTime: string; 
+            endDateTime: string; 
+            planId?: string;
+            includeRawResponse?: boolean;
+        }) => {
             try {
                 if (!currentAuthToken) {
                     throw new Error("Authentication token not found. Please configure the AUTH_TOKEN environment variable in your MCP server configuration.");
                 }
 
-                // Format the API URL with query parameters
-                const url = new URL('https://graph.microsoft.com/v1.0/me/calendarView');
-                url.searchParams.append('startDateTime', startDateTime);
-                url.searchParams.append('endDateTime', endDateTime);
-                url.searchParams.append('$select', 'subject,start,end,organizer,location');
-                url.searchParams.append('$orderby', 'start/dateTime');
+                let url: string;
+                let tasks: any[] = [];
+
+                if (planId) {
+                    // Get tasks from a specific plan
+                    url = `https://graph.microsoft.com/v1.0/planner/plans/${planId}/tasks`;
+                } else {
+                    // Get all tasks assigned to the user
+                    url = 'https://graph.microsoft.com/v1.0/me/planner/tasks';
+                }
 
                 // Make the API request
-                const response = await fetch(url.toString(), {
+                const response = await fetch(url, {
                     headers: {
                         'Authorization': `Bearer ${currentAuthToken}`,
                         'Content-Type': 'application/json',
@@ -42,56 +60,87 @@ export function fetchTasks() {
                     throw new Error(`Microsoft Graph API error: ${errorData?.error?.message || response.statusText}`);
                 }
 
-                const responseData = await response.json() as PlannerTask;
+                const responseData = await response.json() as { value: any[] };
+                tasks = responseData.value || [];
 
-                const data = responseData.value || responseData;
+                // Filter tasks by date range if they have due dates
+                const startDate = new Date(startDateTime);
+                const endDate = new Date(endDateTime);
+                
+                const filteredTasks = tasks.filter(task => {
+                    if (!task.dueDateTime) {
+                        // Include tasks without due dates
+                        return true;
+                    }
+                    const taskDueDate = new Date(task.dueDateTime);
+                    return taskDueDate >= startDate && taskDueDate <= endDate;
+                });
 
-                // Check if data is an array and handle empty results
-                if (!Array.isArray(data)) {
+                // Check if no tasks found
+                if (filteredTasks.length === 0) {
                     return {
                         content: [{
                             type: "text" as const,
-                            text: "Error: Unexpected response format from planner API.",
+                            text: planId 
+                                ? `No tasks found in plan ${planId} for the specified date range.`
+                                : "No tasks found for the specified date range.",
                             _meta: {}
                         }]
                     };
                 }
-                
-                if (data.length === 0) {
-                    return {
-                        content: [{
-                            type: "text" as const,
-                            text: "No tasks found in the specified plan.",
-                            _meta: {}
-                        }]
-                    };
-                }
-                
-                const tasksList = data.map((task, index) => {
+
+                // Format tasks list
+                const tasksList = filteredTasks.map((task, index) => {
                     const dueDate = task.dueDateTime 
-                        ? new Date(task.dueDateTime).toLocaleDateString() 
+                        ? new Date(task.dueDateTime).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        })
                         : 'No due date';
+                    
                     const status = task.percentComplete === 100 
                         ? '✅ Completed' 
                         : task.percentComplete && task.percentComplete > 0 
                             ? '🔄 In Progress' 
                             : '📝 Not Started';
                     
+                    const priority = task.priority ? getPriorityText(task.priority) : 'No priority';
+                    
                     return [
                         `${index + 1}. ${task.title || 'Untitled Task'}`,
                         `   Status: ${status} (${task.percentComplete || 0}%)`,
                         `   Due: ${dueDate}`,
+                        `   Priority: ${priority}`,
                         task.planId ? `   Plan ID: ${task.planId}` : '',
                         task.bucketId ? `   Bucket ID: ${task.bucketId}` : '',
+                        task.id ? `   Task ID: ${task.id}` : '',
+                        task.createdBy?.user?.displayName ? `   Created by: ${task.createdBy.user.displayName}` : '',
+                        task.assignments && Object.keys(task.assignments).length > 0 
+                            ? `   Assigned to: ${Object.keys(task.assignments).length} user(s)` 
+                            : '   Unassigned',
                         '' // Empty line for spacing
                     ].filter(Boolean).join('\n');
                 }).join('\n');
-                
+
+                let responseText = `📋 *Tasks (${filteredTasks.length})*\n\n${tasksList}`;
+
+                // Add raw response if requested
+                if (includeRawResponse) {
+                    responseText += `\n\n🔍 *Raw API Response:*\n\`\`\`json\n${JSON.stringify(responseData, null, 2)}\n\`\`\``;
+                }
+
                 return {
                     content: [{
                         type: "text" as const,
-                        text: `📋 *Tasks (${data.length})*\n\n${tasksList}`,
-                        _meta: {}
+                        text: responseText,
+                        _meta: {
+                            taskCount: filteredTasks.length,
+                            planId: planId,
+                            dateRange: `${startDateTime} to ${endDateTime}`
+                        }
                     }]
                 };
 
@@ -100,7 +149,7 @@ export function fetchTasks() {
                 return {
                     content: [{
                         type: "text" as const,
-                        text: `Error fetching calendar events: ${errorMessage}`,
+                        text: `Error fetching planner tasks: ${errorMessage}`,
                         _meta: {}
                     }],
                     isError: true
@@ -163,14 +212,14 @@ export function createTask() {
                         },
                     });
 
-                    if (!plansResponse.ok) {
+                if (!plansResponse.ok) {
                         const errorData = await plansResponse.json() as { error?: { message?: string } };
                         throw new Error(`Failed to fetch plans: ${errorData?.error?.message || plansResponse.statusText}`);
-                    }
+                }
 
-                    const plans = await plansResponse.json() as { value: Array<{ id: string, title: string }> };
+                const plans = await plansResponse.json() as { value: Array<{ id: string, title: string }> };
                     if (plans.value.length === 0) {
-                        throw new Error("No plans found for this user. Please create a plan first.");
+                    throw new Error("No plans found for this user. Please create a plan first.");
                     }
 
                     // Use the first plan by default if not specified
@@ -192,9 +241,9 @@ export function createTask() {
                     const buckets = await bucketsResponse.json() as { value: Array<{ id: string, name: string }> };
                     if (buckets.value.length === 0) {
                         throw new Error("No buckets found in the selected plan. Please create a bucket first.");
-                    }
+                }
 
-                    // Use the first bucket by default if not specified
+                // Use the first bucket by default if not specified
                     targetBucketId = targetBucketId || buckets.value[0].id;
                 }
 
@@ -211,7 +260,7 @@ export function createTask() {
                 if (description) taskPayload.description = description;
                 if (priority !== undefined) taskPayload.priority = priority;
                 if (assignments) taskPayload.assignments = assignments;
-
+                
                 // First, create the task
                 const createResponse = await fetch('https://graph.microsoft.com/v1.0/planner/tasks', {
                     method: 'POST',
