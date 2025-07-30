@@ -1,140 +1,51 @@
-# Microsoft Planner MCP Server
+# Building a Remote MCP Server on Cloudflare (Without Auth)
 
-A Node.js implementation of the Model Context Protocol (MCP) server for Microsoft Planner, built with TypeScript for type safety and better developer experience.
+This example allows you to deploy a remote MCP server that doesn't require authentication on Cloudflare Workers.
 
-## Features
+## Get started:
 
-- Fetch Microsoft Planner tasks with filtering options
-- TypeScript support with full type definitions
-- MCP protocol implementation
-- Easy to extend and customize
-- Built with modern Node.js features
+[![Deploy to Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-authless)
 
-## Prerequisites
+This will deploy your MCP server to a URL like: `remote-mcp-server-authless.<your-account>.workers.dev/sse`
 
-- Node.js 18.x or later
-- npm 9.x or later
-- TypeScript 5.0 or later
-- Microsoft 365 account with access to Microsoft Planner
-- Azure AD App Registration with appropriate API permissions
-
-## Setup
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/yourusername/mcp-server-nodejs.git
-   cd mcp-server-nodejs
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables**:
-   - Copy `.env.example` to `.env`
-   - Update the values with your Azure AD App Registration details
-   ```env
-   TENANT_ID=your_tenant_id
-   CLIENT_ID=your_client_id
-   CLIENT_SECRET=your_client_secret
-   # Optional: Default user ID to use when 'me' is specified
-   # USER_ID=me@example.com
-   ```
-
-4. **Azure AD App Registration**:
-   - Register a new application in the [Azure Portal](https://portal.azure.com/)
-   - Add the following API permissions:
-     - Microsoft Graph > Delegated permissions > Tasks.Read
-     - Microsoft Graph > Delegated permissions > Tasks.ReadWrite
-   - Create a client secret and note it down
-   - Note your Application (client) ID and Directory (tenant) ID
-
-## Building the Project
-
-To compile TypeScript to JavaScript:
+Alternatively, you can use the command line below to get the remote MCP Server created on your local machine:
 
 ```bash
-npm run build
+npm create cloudflare@latest -- my-mcp-server --template=cloudflare/ai/demos/remote-mcp-authless
 ```
 
-This will compile the TypeScript files and output them to the `build` directory.
+## Customizing your MCP Server
 
-## Usage
+To add your own [tools](https://developers.cloudflare.com/agents/model-context-protocol/tools/) to the MCP server, define each tool inside the `init()` method of `src/index.ts` using `this.server.tool(...)`.
 
-### Running the Server
+## Connect to Cloudflare AI Playground
 
-After building, you can run the server using:
+You can connect to your MCP server from the Cloudflare AI Playground, which is a remote MCP client:
 
-```bash
-node build/index.js
-```
+1. Go to https://playground.ai.cloudflare.com/
+2. Enter your deployed MCP server URL (`remote-mcp-server-authless.<your-account>.workers.dev/sse`)
+3. You can now use your MCP tools directly from the playground!
 
-### Available Tools
+## Connect Claude Desktop to your MCP server
 
-#### Get Planner Tasks
+You can also connect to your remote MCP server from local MCP clients, by using the [mcp-remote proxy](https://www.npmjs.com/package/mcp-remote).
 
-Fetches Microsoft Planner tasks with optional filtering.
+To connect to your MCP server from Claude Desktop, follow [Anthropic's Quickstart](https://modelcontextprotocol.io/quickstart/user) and within Claude Desktop go to Settings > Developer > Edit Config.
 
-**Parameters:**
-- `user_id` (string, optional): The ID of the user or 'me' for current user (default: 'me')
-- `plan_id` (string, optional): Filter tasks by plan ID
-- `task_list_id` (string, optional): Filter tasks by bucket (task list) ID
-- `status` (string, optional): Filter tasks by status (notStarted, inProgress, completed, deferred, waitingOnOthers)
-- `top` (number, optional): Maximum number of tasks to return (default: 25, max: 100)
-- `skip` (number, optional): Number of tasks to skip (for pagination, default: 0)
+Update with this configuration:
 
-**Example Request:**
 ```json
 {
-  "user_id": "me",
-  "top": 5,
-  "status": "notStarted"
+  "mcpServers": {
+    "calculator": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8787/sse?token=your-token" // or remote-mcp-server-authless.your-account.workers.dev/sse?token=your-token
+      ]
+    }
+  }
 }
 ```
 
-## Testing
-
-To run the test script:
-
-```bash
-npm test
-```
-
-Or manually run the test script:
-
-```bash
-node test.js
-```
-
-## Development
-
-### Project Structure
-
-- `src/` - Source files
-  - `interfaces/` - TypeScript interfaces
-  - `schemas/` - Zod schemas for input validation
-  - `services/` - Business logic and API clients
-  - `tools/` - MCP tool implementations
-  - `types/` - TypeScript type declarations
-  - `index.ts` - Main entry point
-
-### Adding New Tools
-
-1. Create a new file in `src/tools/` for your tool
-2. Define the tool's schema in `src/schemas/`
-3. Add any necessary interfaces in `src/interfaces/`
-4. Implement the tool's functionality in the service layer
-5. Register the tool in `src/index.ts`
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
-
-- Source code is in the `src` directory
-- Built files are output to the `build` directory
-- The project uses TypeScript for type safety
+Restart Claude and you should see the tools become available.

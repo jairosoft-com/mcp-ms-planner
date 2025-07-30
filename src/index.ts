@@ -1,86 +1,52 @@
-// @ts-ignore - Missing type definitions for @modelcontextprotocol/sdk
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-// @ts-ignore - Missing type definitions for @modelcontextprotocol/sdk
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { registerPlannerTools } from './tools/plannerTools.js';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { McpAgent } from "agents/mcp";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Env } from "./interface/calendarInterfaces";
+import { fetchTasks, createTask, setAuthToken } from "./tools/plannerTools";
 
-// Get the directory name of the current module
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Define our MCP agent with tools
+export class MyMCP extends McpAgent {
+	server = new McpServer({
+		name: "Microsoft Calendar Events Fetcher",
+		version: "1.0.0",
+	});
 
-// Load environment variables from .env file in the project root
-const envPath = path.resolve(__dirname, '../../.env');
-dotenv.config({ path: envPath });
+	async init() {
+		// Get tool definitions by calling the factory functions
+		const fetchTasksTool = fetchTasks();
+		const createTasksTool = createTask();
 
-// Check for required environment variables
-const requiredEnvVars = ["AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"];
-const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
+		this.server.tool(
+			fetchTasksTool.name,
+			fetchTasksTool.schema,
+			fetchTasksTool.handler
+		);
 
-if (missingVars.length > 0) {
-  // Error messages removed for production
-  process.exit(1);
+		this.server.tool(
+			createTasksTool.name,
+			createTasksTool.schema,
+			createTasksTool.handler
+		);
+    }
 }
 
-// Environment variables loaded
+export default {
+    fetch(request: Request, env: Env, ctx: ExecutionContext) {
+        const url = new URL(request.url);
+        const tokenFromUrl = url.searchParams.get('token');
+        const authToken = tokenFromUrl || env.AUTH_TOKEN;
+        
+        console.log('Auth token received:', authToken ? `${authToken.substring(0, 10)}...` : 'No token found');
+		
+		setAuthToken(authToken);
 
-// Create server instance
-const server = new McpServer({
-  name: "ms-planner",
-  version: "1.0.0",
-});
+		if (url.pathname === "/sse" || url.pathname === "/sse/message") {
+			return MyMCP.serveSSE("/sse").fetch(request, env, ctx);
+		}
 
-// Register tools
-registerPlannerTools(server);
+		if (url.pathname === "/mcp") {
+			return MyMCP.serve("/mcp").fetch(request, env, ctx);
+		}
 
-// Store the original console methods
-const originalConsole = {
-  log: console.log,
-  error: console.error,
-  warn: console.warn,
-  info: console.info,
-  debug: console.debug
+		return new Response("Not found", { status: 404 });
+	},
 };
-
-// Suppress all console output during server initialization
-function suppressConsole() {
-  console.log = () => {};
-  console.error = () => {};
-  console.warn = () => {};
-  console.info = () => {};
-  console.debug = () => {};
-}
-
-// Restore original console methods
-function restoreConsole() {
-  console.log = originalConsole.log;
-  console.error = originalConsole.error;
-  console.warn = originalConsole.warn;
-  console.info = originalConsole.info;
-  console.debug = originalConsole.debug;
-}
-
-// Start the server
-async function main() {
-  try {
-    // Suppress console output during server initialization
-    suppressConsole();
-    
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    
-    // Restore console after successful connection
-    restoreConsole();
-  } catch (error) {
-    // Restore console before exiting on error
-    restoreConsole();
-    process.exit(1);
-  }
-}
-
-// Start the server
-main().catch(() => {
-  process.exit(1);
-});
