@@ -5,7 +5,6 @@ export interface PlannerTask {
     bucketId?: string;
     dueDateTime?: string | null;
     percentComplete?: number;
-    value?: string; 
 }
 
 export interface CreateTaskParams {
