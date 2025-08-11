@@ -10,7 +10,7 @@ This document explains how to build and run the MCP server in a Docker container
 ## Building the Docker Image
 
 ```bash
-docker build -t mcp-calendar-server .
+docker build -t mcp-ms-planner .
 ```
 
 ## Running the Container
@@ -18,26 +18,25 @@ docker build -t mcp-calendar-server .
 ### Basic Usage
 
 ```bash
-docker run -p 8787:8787 -e AUTH_TOKEN=your_auth_token mcp-calendar-server
+docker run -d -p 8787:8787 --name mcp-ms-planner mcp-ms-planner
 ```
 
-### Environment Variables
+### Authentication
 
-- `AUTH_TOKEN`: (Required) Authentication token for the MCP server
-- `NODE_ENV`: Set to `production` or `development` (default: `production`)
+To obtain an authentication token:
 
-### Example with Environment File
+1. Visit: https://delegated-login-ui.thankfulground-ca4b1ba2.westus2.azurecontainerapps.io/
+2. Log in with your Microsoft account
+3. Copy the displayed authentication token (valid for 1 hour)
+4. Use the token when making requests to the API
 
-1. Create a `.env` file:
-   ```
-   AUTH_TOKEN=your_auth_token_here
-   NODE_ENV=development
-   ```
+### Running with Authentication
 
-2. Run the container:
-   ```bash
-   docker run -p 8787:8787 --env-file .env mcp-calendar-server
-   ```
+When making requests to the API, include the token in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer YOUR_AUTH_TOKEN" http://localhost:8787/your-endpoint
+```
 
 ## Accessing the Server
 
